@@ -6,15 +6,32 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 public class VRBallTarget : MonoBehaviour
 {
     public DogRoute dogAI;
+
+    [Header("Pengaman Batas Jatuh")]
+    [Tooltip("Jika posisi Y bola turun di bawah angka ini, bola akan kembali ke posisi awal")]
+    public float minHeightY = -2f;
+
     private XRGrabInteractable grabInteractable;
+    private Rigidbody rb;
+    private Vector3 initialPosition;
 
     void Awake()
     {
         grabInteractable = GetComponent<XRGrabInteractable>();
+        rb = GetComponent<Rigidbody>();
+        initialPosition = transform.position;
 
         if (dogAI == null)
         {
             dogAI = FindFirstObjectByType<DogRoute>();
+        }
+    }
+
+    void Update()
+    {
+        if (transform.position.y < minHeightY)
+        {
+            ResetBallPosition();
         }
     }
 
@@ -30,10 +47,8 @@ public class VRBallTarget : MonoBehaviour
         grabInteractable.selectExited.RemoveListener(OnBallReleased);
     }
 
-    // Saat pemain mengambil bola dengan tangan VR -> anjing mulai berlari mendekati pemain
     private void OnBallGrabbed(SelectEnterEventArgs args)
     {
-        // Lepaskan dari mulut anjing jika sedang digigit
         if (transform.parent != null)
         {
             transform.SetParent(null);
@@ -52,13 +67,36 @@ public class VRBallTarget : MonoBehaviour
         }
     }
 
-    // Saat pemain melempar/melepas bola -> anjing mengejar, menggigit, dan mengembalikannya ke ReturnPoint
     private void OnBallReleased(SelectExitEventArgs args)
     {
         if (dogAI != null)
         {
             dogAI.isHeldByPlayer = false;
             dogAI.targetObject = transform;
+        }
+    }
+
+    public void ResetBallPosition()
+    {
+        transform.SetParent(null);
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.useGravity = true;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        transform.position = initialPosition;
+
+        if (dogAI != null)
+        {
+            dogAI.isHeldByPlayer = false;
+            if (dogAI.targetObject == transform)
+            {
+                dogAI.targetObject = null;
+            }
         }
     }
 }
