@@ -6,7 +6,7 @@ public class BallSpawner : MonoBehaviour
 {
     [Header("Referensi Objek")]
     public GameObject ballPrefab;
-    public DelayMovement dogAI;
+    public DogRoute dogAI; 
     public Transform centrePoint;
     public float spawnRange = 8f;
 
