@@ -230,7 +230,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b7aba5356ac56344181f5891d5099498, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRWhistle
-  dogAI: {fileID: 4018219025075320000}
+  dogAI: {fileID: 0}
   whistleAction:
     m_UseReference: 0
     m_Action:
@@ -7275,7 +7275,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 92c9acef1619d96499d538bc7d5aa1d2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRFoodBowl
-  dogAI: {fileID: 4018219025075320000}
+  dogAI: {fileID: 0}
   catAI: {fileID: 0}
   foodVisual: {fileID: 273179052}
   emptyScaleY: 0.01
@@ -7439,7 +7439,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 92c9acef1619d96499d538bc7d5aa1d2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRFoodBowl
-  dogAI: {fileID: 4018219025075320000}
+  dogAI: {fileID: 0}
   catAI: {fileID: 8181932940592123215}
   foodVisual: {fileID: 841542492}
   emptyScaleY: 0.01
@@ -8720,7 +8720,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f8a49a992b228614d8444479fa36abc9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRBallTarget
-  dogAI: {fileID: 4018219025075320000}
+  dogAI: {fileID: 0}
   bounceMaterial: {fileID: 0}
   minHeightY: -2
 --- !u!114 &1594529303
@@ -12466,56 +12466,6 @@ Transform:
   - {fileID: 7433828048904716048}
   m_Father: {fileID: 1131137166809494175}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &4018219025075320000
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4433981408118932070}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2e0f9b53c03eed84385eac29adfbd115, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::DogRoute
-  agent: {fileID: 0}
-  waypoints:
-  - {fileID: 623035019}
-  - {fileID: 1777608734}
-  - {fileID: 439071170}
-  - {fileID: 257905557}
-  waypointIdleTypes: 
-  waypointWaitTimes:
-  - 4
-  - 2
-  - 7
-  - 3
-  loopRoute: 1
-  targetObject: {fileID: 0}
-  detectionRadius: 10
-  mouthPoint: {fileID: 2913726206947575629}
-  vrPlayer: {fileID: 0}
-  dropDistanceFromPlayer: 1.2
-  waitDistanceFromPlayer: 1.5
-  holdingBallIdleType: 0
-  isHeldByPlayer: 0
-  foodBowl: {fileID: 903351800}
-  eatStopDistance: 0.85
-  minEatDuration: 5
-  maxEatDuration: 10
-  waitingFoodIdleType: 0
-  minHungerCooldown: 180
-  maxHungerCooldown: 300
-  petIdleType: 1
-  postPetWaitTime: 1.5
-  whistleStopDistance: 1.5
-  whistleWaitDuration: 5
-  whistleIdleType: 1
-  walkSpeed: 1.5
-  runSpeed: 4.5
-  minWaitTime: 2
-  maxWaitTime: 4
-  animator: {fileID: 0}
 --- !u!1 &4028242774790006180
 GameObject:
   m_ObjectHideFlags: 0
@@ -12983,10 +12933,10 @@ GameObject:
   - component: {fileID: 3946132069396895964}
   - component: {fileID: 2767559167179661338}
   - component: {fileID: 2909743500536832317}
-  - component: {fileID: 4018219025075320000}
   - component: {fileID: 4721886272867289575}
   - component: {fileID: 4721886272867289574}
   - component: {fileID: 4721886272867289573}
+  - component: {fileID: 4721886272867289576}
   m_Layer: 0
   m_Name: SHIBA INU
   m_TagString: Untagged
@@ -13213,7 +13163,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ae1b97a2214619b40ae8215d22bbd89b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VRDogPetting
-  dogAI: {fileID: 4018219025075320000}
+  dogAI: {fileID: 0}
   vrPlayer: {fileID: 1117323022}
   heartParticles: {fileID: 821151040}
   maxPetDistance: 1.8
@@ -13318,6 +13268,48 @@ CapsuleCollider:
   m_Height: 1
   m_Direction: 1
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &4721886272867289576
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4433981408118932070}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20be4228496f06e47a81321ca7a1000b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DogController
+  agent: {fileID: 0}
+  waypoints: []
+  waypointIdleTypes: 
+  waypointWaitTimes: []
+  loopRoute: 1
+  targetObject: {fileID: 0}
+  detectionRadius: 15
+  mouthPoint: {fileID: 0}
+  vrPlayer: {fileID: 0}
+  dropDistanceFromPlayer: 1.2
+  waitDistanceFromPlayer: 1.5
+  holdingBallIdleType: 0
+  isHeldByPlayer: 0
+  foodBowl: {fileID: 0}
+  eatStopDistance: 0.85
+  minEatDuration: 5
+  maxEatDuration: 10
+  waitingFoodIdleType: 0
+  minHungerCooldown: 180
+  maxHungerCooldown: 300
+  petIdleType: 0
+  postPetWaitTime: 1.5
+  whistleStopDistance: 1.5
+  whistleWaitDuration: 5
+  whistleIdleType: 0
+  walkSpeed: 1.5
+  runSpeed: 4.5
+  minWaitTime: 2
+  maxWaitTime: 4
+  animator: {fileID: 0}
 --- !u!4 &4747415643136875613
 Transform:
   m_ObjectHideFlags: 0
