@@ -2,8 +2,9 @@ using UnityEngine;
 
 public class VRFoodBowl : MonoBehaviour
 {
-    [Header("Referensi AI Anjing")]
+    [Header("Referensi AI Hewan (Isi Salah Satu)")]
     public DogRoute dogAI;
+    public CatRoute catAI;
 
     [Header("Visual Makanan di Dalam Bowl")]
     [Tooltip("Objek visual tumpukan makanan di dalam bowl yang akan naik/membesar saat diisi")]
@@ -20,9 +21,15 @@ public class VRFoodBowl : MonoBehaviour
 
     void Awake()
     {
-        if (dogAI == null)
+        if (dogAI == null && catAI == null)
         {
-            dogAI = FindFirstObjectByType<DogRoute>();
+            DogRoute foundDog = FindFirstObjectByType<DogRoute>();
+            CatRoute foundCat = FindFirstObjectByType<CatRoute>();
+
+            if (foundDog != null && foundCat == null)
+                dogAI = foundDog;
+            else if (foundCat != null && foundDog == null)
+                catAI = foundCat;
         }
 
         if (foodVisual != null)
@@ -49,6 +56,18 @@ public class VRFoodBowl : MonoBehaviour
             if (IsFull)
             {
                 dogAI.NotifyFoodFull();
+            }
+        }
+
+        if (catAI != null)
+        {
+            // Kucing mendekat dan menunggu di pinggir bowl selama diisi
+            catAI.NotifyFoodPouring(transform, this);
+
+            // Kucing baru mulai makan setelah bowl penuh 100%
+            if (IsFull)
+            {
+                catAI.NotifyFoodFull();
             }
         }
     }

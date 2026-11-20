@@ -6,7 +6,8 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 public class VRFoodBox : MonoBehaviour
 {
     [Header("Referensi Tempat Makan")]
-    public VRFoodBowl targetBowl;
+    [Tooltip("Daftar bowl yang bisa diisi oleh box ini (jika kosong, otomatis mendeteksi semua VRFoodBowl di scene)")]
+    public VRFoodBowl[] targetBowls;
     [Tooltip("Titik ujung tempat keluarnya makanan (opsional, default pusat box)")]
     public Transform pourOrigin;
 
@@ -27,9 +28,10 @@ public class VRFoodBox : MonoBehaviour
     void Awake()
     {
         grabInteractable = GetComponent<XRGrabInteractable>();
-        if (targetBowl == null)
+
+        if (targetBowls == null || targetBowls.Length == 0)
         {
-            targetBowl = FindFirstObjectByType<VRFoodBowl>();
+            targetBowls = FindObjectsByType<VRFoodBowl>(FindObjectsSortMode.None);
         }
     }
 
@@ -39,27 +41,45 @@ public class VRFoodBox : MonoBehaviour
         bool isTiltedEnough = tiltAngle >= minTiltAngle;
 
         Transform origin = pourOrigin != null ? pourOrigin : transform;
-        bool isOverBowl = false;
+        VRFoodBowl activeBowl = GetBowlUnderOrigin(origin);
 
-        if (targetBowl != null)
-        {
-            Vector2 flatOrigin = new Vector2(origin.position.x, origin.position.z);
-            Vector2 flatBowl = new Vector2(targetBowl.transform.position.x, targetBowl.transform.position.z);
-            float horizontalDist = Vector2.Distance(flatOrigin, flatBowl);
-            bool isAboveBowl = origin.position.y >= targetBowl.transform.position.y - 0.1f;
-
-            isOverBowl = isAboveBowl && (horizontalDist <= maxPourHorizontalDistance);
-        }
-
-        if (grabInteractable.isSelected && isTiltedEnough && isOverBowl && !targetBowl.IsFull)
+        if (grabInteractable.isSelected && isTiltedEnough && activeBowl != null && !activeBowl.IsFull)
         {
             StartPouring();
-            targetBowl.AddFood(fillSpeed * Time.deltaTime);
+            activeBowl.AddFood(fillSpeed * Time.deltaTime);
         }
         else
         {
             StopPouring();
         }
+    }
+
+    VRFoodBowl GetBowlUnderOrigin(Transform origin)
+    {
+        if (targetBowls == null || targetBowls.Length == 0) return null;
+
+        VRFoodBowl closestBowl = null;
+        float closestDist = maxPourHorizontalDistance;
+        Vector2 flatOrigin = new Vector2(origin.position.x, origin.position.z);
+
+        foreach (VRFoodBowl bowl in targetBowls)
+        {
+            if (bowl == null) continue;
+
+            bool isAboveBowl = origin.position.y >= bowl.transform.position.y - 0.1f;
+            if (!isAboveBowl) continue;
+
+            Vector2 flatBowl = new Vector2(bowl.transform.position.x, bowl.transform.position.z);
+            float horizontalDist = Vector2.Distance(flatOrigin, flatBowl);
+
+            if (horizontalDist <= closestDist)
+            {
+                closestDist = horizontalDist;
+                closestBowl = bowl;
+            }
+        }
+
+        return closestBowl;
     }
 
     void StartPouring()
