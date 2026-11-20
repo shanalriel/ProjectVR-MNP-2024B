@@ -7,19 +7,29 @@ public class VRBallTarget : MonoBehaviour
 {
     public DogRoute dogAI;
 
+    [Header("Pengaturan Pantulan")]
+    [Tooltip("Masukkan Physics Material BallBounce agar aktif saat dilempar player")]
+    public PhysicsMaterial bounceMaterial;
+
     [Header("Pengaman Batas Jatuh")]
-    [Tooltip("Jika posisi Y bola turun di bawah angka ini, bola akan kembali ke posisi awal")]
     public float minHeightY = -2f;
 
     private XRGrabInteractable grabInteractable;
     private Rigidbody rb;
+    private Collider ballCollider;
     private Vector3 initialPosition;
 
     void Awake()
     {
         grabInteractable = GetComponent<XRGrabInteractable>();
         rb = GetComponent<Rigidbody>();
+        ballCollider = GetComponent<Collider>();
         initialPosition = transform.position;
+
+        if (ballCollider != null && bounceMaterial == null)
+        {
+            bounceMaterial = ballCollider.sharedMaterial;
+        }
 
         if (dogAI == null)
         {
@@ -54,10 +64,10 @@ public class VRBallTarget : MonoBehaviour
             transform.SetParent(null);
         }
 
-        Collider col = GetComponent<Collider>();
-        if (col != null)
+        if (ballCollider != null)
         {
-            col.isTrigger = false;
+            ballCollider.isTrigger = false;
+            ballCollider.material = bounceMaterial;
         }
 
         if (dogAI != null)
@@ -69,6 +79,11 @@ public class VRBallTarget : MonoBehaviour
 
     private void OnBallReleased(SelectExitEventArgs args)
     {
+        if (ballCollider != null)
+        {
+            ballCollider.material = bounceMaterial;
+        }
+
         if (dogAI != null)
         {
             dogAI.isHeldByPlayer = false;
@@ -79,6 +94,12 @@ public class VRBallTarget : MonoBehaviour
     public void ResetBallPosition()
     {
         transform.SetParent(null);
+
+        if (ballCollider != null)
+        {
+            ballCollider.isTrigger = false;
+            ballCollider.material = bounceMaterial;
+        }
 
         if (rb != null)
         {
