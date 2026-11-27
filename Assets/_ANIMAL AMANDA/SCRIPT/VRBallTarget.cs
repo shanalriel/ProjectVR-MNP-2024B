@@ -6,43 +6,39 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 public class VRBallTarget : MonoBehaviour
 {
     public DogController dogAI;
+    [Tooltip("Pengali kekuatan lemparan bola")]
+    public float throwMultiplier = 1.5f;
+    [Tooltip("Kecepatan minimal (m/s) agar dianggap lemparan; jika lebih pelan dari ini dianggap dijatuhkan (drop)")]
+    public float minThrowSpeed = 1.5f;
 
-    [Header("Pengaturan Pantulan")]
-    [Tooltip("Masukkan Physics Material BallBounce agar aktif saat dilempar player")]
-    public PhysicsMaterial bounceMaterial;
-
-    [Header("Pengaman Batas Jatuh")]
-    public float minHeightY = -2f;
+    [Header("Pengaturan Respawn Bola")]
+    [Tooltip("Titik respawn khusus (kosongkan jika ingin kembali ke posisi awal bola di scene)")]
+    public Transform customRespawnPoint;
+    [Tooltip("Batas ketinggian Y; jika bola jatuh di bawah angka ini, bola otomatis respawn")]
+    public float fallThresholdY = -3f;
 
     private XRGrabInteractable grabInteractable;
     private Rigidbody rb;
-    private Collider ballCollider;
     private Vector3 initialPosition;
+    private Quaternion initialRotation;
+
+    private Transform currentHandTransform;
+    private Vector3 lastHandPos;
+    private Vector3 trackedHandVelocity;
 
     void Awake()
     {
         grabInteractable = GetComponent<XRGrabInteractable>();
         rb = GetComponent<Rigidbody>();
-        ballCollider = GetComponent<Collider>();
-        initialPosition = transform.position;
-
-        if (ballCollider != null && bounceMaterial == null)
-        {
-            bounceMaterial = ballCollider.sharedMaterial;
-        }
 
         if (dogAI == null)
-        {
             dogAI = FindFirstObjectByType<DogController>();
-        }
     }
 
-    void Update()
+    void Start()
     {
-        if (transform.position.y < minHeightY)
-        {
-            ResetBallPosition();
-        }
+        initialPosition = customRespawnPoint != null ? customRespawnPoint.position : transform.position;
+        initialRotation = customRespawnPoint != null ? customRespawnPoint.rotation : transform.rotation;
     }
 
     void OnEnable()
@@ -57,49 +53,27 @@ public class VRBallTarget : MonoBehaviour
         grabInteractable.selectExited.RemoveListener(OnBallReleased);
     }
 
-    private void OnBallGrabbed(SelectEnterEventArgs args)
+    void Update()
     {
-        if (transform.parent != null)
+        if (grabInteractable.isSelected && currentHandTransform != null && Time.deltaTime > 0f)
         {
-            transform.SetParent(null);
+            Vector3 instantVel = (currentHandTransform.position - lastHandPos) / Time.deltaTime;
+            trackedHandVelocity = Vector3.Lerp(trackedHandVelocity, instantVel, Time.deltaTime * 15f);
+            lastHandPos = currentHandTransform.position;
         }
 
-        if (ballCollider != null)
+        bool isCarriedByDog = dogAI != null && dogAI.IsCarryingBall;
+        if (!grabInteractable.isSelected && !isCarriedByDog && transform.position.y < fallThresholdY)
         {
-            ballCollider.isTrigger = false;
-            ballCollider.material = bounceMaterial;
-        }
-
-        if (dogAI != null)
-        {
-            dogAI.isHeldByPlayer = true;
-            dogAI.targetObject = transform;
+            RespawnBall();
         }
     }
 
-    private void OnBallReleased(SelectExitEventArgs args)
-    {
-        if (ballCollider != null)
-        {
-            ballCollider.material = bounceMaterial;
-        }
-
-        if (dogAI != null)
-        {
-            dogAI.isHeldByPlayer = false;
-            dogAI.targetObject = transform;
-        }
-    }
-
-    public void ResetBallPosition()
+    public void RespawnBall()
     {
         transform.SetParent(null);
-
-        if (ballCollider != null)
-        {
-            ballCollider.isTrigger = false;
-            ballCollider.material = bounceMaterial;
-        }
+        transform.position = customRespawnPoint != null ? customRespawnPoint.position : initialPosition;
+        transform.rotation = customRespawnPoint != null ? customRespawnPoint.rotation : initialRotation;
 
         if (rb != null)
         {
@@ -109,14 +83,55 @@ public class VRBallTarget : MonoBehaviour
             rb.angularVelocity = Vector3.zero;
         }
 
-        transform.position = initialPosition;
+        if (dogAI != null)
+        {
+            dogAI.OnBallDropped();
+        }
+    }
+
+    private void OnBallGrabbed(SelectEnterEventArgs args)
+    {
+        transform.SetParent(null);
+        currentHandTransform = args.interactorObject.transform;
+        lastHandPos = currentHandTransform.position;
+        trackedHandVelocity = Vector3.zero;
 
         if (dogAI != null)
         {
-            dogAI.isHeldByPlayer = false;
-            if (dogAI.targetObject == transform)
+            dogAI.OnBallGrabbedByPlayer(transform);
+        }
+    }
+
+    private void OnBallReleased(SelectExitEventArgs args)
+    {
+        transform.SetParent(null);
+        float releaseSpeed = 0f;
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.useGravity = true;
+
+            if (rb.linearVelocity.sqrMagnitude < 0.05f && trackedHandVelocity.sqrMagnitude > 0.01f)
             {
-                dogAI.targetObject = null;
+                rb.linearVelocity = trackedHandVelocity * throwMultiplier;
+            }
+
+            releaseSpeed = rb.linearVelocity.magnitude;
+        }
+
+        currentHandTransform = null;
+
+        if (dogAI != null)
+        {
+            // Jika dilepas tanpa ayunan/kecepatan (sekadar di-drop), anjing tidak akan mengejar
+            if (releaseSpeed >= minThrowSpeed)
+            {
+                dogAI.OnBallThrown(transform);
+            }
+            else
+            {
+                dogAI.OnBallDropped();
             }
         }
     }

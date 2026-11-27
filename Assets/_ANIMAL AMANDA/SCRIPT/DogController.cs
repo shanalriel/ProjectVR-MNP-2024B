@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 public class DogController : MonoBehaviour
 {
@@ -8,19 +9,40 @@ public class DogController : MonoBehaviour
     public Transform[] waypoints;
     [Tooltip("ID animasi tiap titik (0 = Idle biasa, 1 = Animasi 1, 2 = Animasi 2, dst.)")]
     public int[] waypointIdleTypes;
+    [Tooltip("Centang jika animasi ingin di-loop terus selama Wait Time; kosongkan jika ingin memakai jumlah putaran manual di bawah")]
+    public bool[] waypointLoopIdle;
+    [Tooltip("Jumlah putaran manual (1 = 1x, 2 = 2x, dst.) jika Waypoint Loop Idle tidak dicentang")]
+    public int[] waypointLoopCounts;
     [Tooltip("Durasi diam (detik) tiap titik. Jika diisi 0, akan memakai nilai acak Min/Max Wait Time.")]
     public float[] waypointWaitTimes;
     public bool loopRoute = true;
 
+    [Header("Pengaturan Tidur Setelah Loop Waypoint")]
+    [Tooltip("Centang jika anjing akan tidur setelah menyelesaikan seluruh putaran waypoint")]
+    public bool sleepAfterRouteLoop = true;
+    [Tooltip("Berapa kali putaran penuh seluruh waypoint sebelum anjing tidur (1 = tidur setelah 1 putaran penuh)")]
+    public int routeLoopsBeforeSleep = 1;
+    [Tooltip("Durasi tidur (detik). Isi 0 jika ingin anjing tidur terus sampai dibangunkan (whistle/bola/elus/makan).")]
+    public float sleepDuration = 15f;
+
     [Header("Interaksi Bola & Player VR")]
     public Transform targetObject;
+    [Tooltip("Jarak minimal (meter) bola dari PLAYER agar dikejar; jika bola jatuh dekat player (< nilai ini), anjing tidak mengejar")]
+    public float minDistanceFromPlayer = 2.5f;
+    [Tooltip("Jarak maksimal (meter) anjing mendeteksi dan mengejar bola yang dilempar")]
     public float detectionRadius = 15f;
     public Transform mouthPoint;
     public Transform vrPlayer;
+    [Tooltip("Jarak berhenti anjing di depan player untuk menyerahkan bola")]
     public float dropDistanceFromPlayer = 1.2f;
+    [Tooltip("Jarak berhenti anjing di depan player saat player mengangkat bola dari tanah")]
     public float waitDistanceFromPlayer = 1.5f;
-    public int holdingBallIdleType = 0;
+    [Tooltip("ID animasi saat anjing diam menyerahkan bola di mulutnya (1 = Duduk, 3 = Holding Ball)")]
+    public int deliverBallIdleType = 3;
+    [Tooltip("ID animasi saat anjing menghampiri & menunggu player yang mengangkat bola (2 = Standing)")]
+    public int holdingBallIdleType = 2;
     [HideInInspector] public bool isHeldByPlayer = false;
+    public bool IsCarryingBall => isCarryingBall;
 
     [Header("Interaksi Tempat Makan & Sistem Lapar")]
     public VRFoodBowl foodBowl;
@@ -39,7 +61,7 @@ public class DogController : MonoBehaviour
 
     [Header("Interaksi Elus (Petting)")]
     [Tooltip("ID animasi saat anjing dielus (0 = Idle biasa, 1 = Duduk, dst.)")]
-    public int petIdleType = 0;
+    public int petIdleType = 1;
     [Tooltip("Waktu jeda diam (detik) setelah selesai dielus sebelum berjalan lagi")]
     public float postPetWaitTime = 1.5f;
 
@@ -49,7 +71,7 @@ public class DogController : MonoBehaviour
     [Tooltip("Durasi anjing diam di depan pemain setelah dipanggil (detik)")]
     public float whistleWaitDuration = 5f;
     [Tooltip("ID animasi saat anjing diam setelah dipanggil (0 = Idle biasa, 1 = Duduk, dst.)")]
-    public int whistleIdleType = 0;
+    public int whistleIdleType = 1;
 
     [Header("Pengaturan Kecepatan")]
     public float walkSpeed = 1.5f;
@@ -66,9 +88,22 @@ public class DogController : MonoBehaviour
     private int currentIdleType = 0;
     private float waitTimer = 0f;
     private bool isWaiting = false;
+    private bool currentContinuousLoop = false;
+    private int currentIdleLoopCount = 1;
+    private bool enteredIdleAnimState = false;
+    private float idleAnimSafetyTimer = 0f;
+
+    private int completedRouteLoops = 0;
+    private bool pendingSleepAfterWait = false;
+    private bool isSleeping = false;
+    private float sleepTimer = 0f;
+
     private bool isChasing = false;
     private bool isCarryingBall = false;
     private Transform carriedBall;
+    private XRGrabInteractable carriedBallGrab;
+    private float pickupCooldownTimer = 0f;
+    private float throwDetectionTimer = 0f;
 
     private bool isHungry = true;
     private float hungerTimer = 0f;
@@ -100,7 +135,7 @@ public class DogController : MonoBehaviour
 
         isHungry = true;
 
-        if (agent != null && agent.isOnNavMesh && waypoints.Length > 0)
+        if (agent != null && agent.isOnNavMesh && waypoints != null && waypoints.Length > 0)
         {
             MoveToCurrentWaypoint();
         }
@@ -109,25 +144,87 @@ public class DogController : MonoBehaviour
     public void SetBeingPetted(bool petted)
     {
         isBeingPetted = petted;
+        if (petted && isSleeping)
+        {
+            WakeUpFromSleep();
+        }
     }
 
     public void OnWhistleCalled()
     {
         if (isCarryingBall || isEating || isHeldByPlayer) return;
 
+        WakeUpFromSleep();
         isCalledByWhistle = true;
         isWaitingAtWhistle = false;
         isWaiting = false;
+        currentContinuousLoop = false;
+        currentIdleLoopCount = 1;
         currentIdleType = 0;
+    }
+
+    public void OnBallGrabbedByPlayer(Transform ball = null)
+    {
+        WakeUpFromSleep();
+
+        if (isCarryingBall)
+        {
+            isHeldByPlayer = false;
+            targetObject = null;
+            isChasing = false;
+            ReleaseCarriedBallToPlayer();
+            return;
+        }
+
+        isHeldByPlayer = true;
+        isChasing = false;
+        isCalledByWhistle = false;
+        isWaitingAtWhistle = false;
+        if (ball != null)
+        {
+            targetObject = ball;
+        }
+    }
+
+    public void OnBallDropped()
+    {
+        isHeldByPlayer = false;
+        isChasing = false;
+        isWaiting = false;
+        currentIdleType = 0;
+        targetObject = null;
+
+        if (!isSleeping && agent != null && agent.isOnNavMesh)
+        {
+            agent.speed = walkSpeed;
+            MoveToCurrentWaypoint();
+        }
+    }
+
+    public void OnBallThrown(Transform ball)
+    {
+        WakeUpFromSleep();
+
+        if (isCarryingBall)
+        {
+            ReleaseCarriedBallToPlayer();
+        }
+        isHeldByPlayer = false;
+        isChasing = false;
+        targetObject = ball;
+        pickupCooldownTimer = 0.8f;
+        throwDetectionTimer = 3.5f;
     }
 
     public void NotifyFoodPouring(Transform bowlTransform, VRFoodBowl bowlScript)
     {
+        if (foodBowl != null && bowlScript != null && bowlScript != foodBowl) return;
         if (foodBowl == null && bowlScript != null)
             foodBowl = bowlScript;
 
         if (!isHungry || isCarryingBall || isEating) return;
 
+        WakeUpFromSleep();
         isApproachingBowl = true;
     }
 
@@ -135,14 +232,22 @@ public class DogController : MonoBehaviour
     {
         if (!isHungry || isCarryingBall || isEating) return;
 
+        WakeUpFromSleep();
         isApproachingBowl = true;
+    }
+
+    void WakeUpFromSleep()
+    {
+        if (!isSleeping) return;
+        isSleeping = false;
+        isWaiting = false;
+        currentIdleType = 0;
     }
 
     void Update()
     {
         if (agent == null || !agent.isOnNavMesh) return;
 
-        // Hitung mundur jeda lapar (3-5 menit setelah selesai makan)
         if (!isHungry)
         {
             hungerTimer -= Time.deltaTime;
@@ -152,43 +257,79 @@ public class DogController : MonoBehaviour
 
                 if (foodBowl != null && foodBowl.currentFill > 0f)
                 {
+                    WakeUpFromSleep();
                     isApproachingBowl = true;
                 }
             }
         }
 
-        if (isCarryingBall && (carriedBall == null || isHeldByPlayer))
+        // Jika player mengambil bola langsung dari mulut anjing -> langsung kembali ke rute waypoint
+        bool grabbedFromMouth = carriedBallGrab != null && carriedBallGrab.isSelected;
+        if (isCarryingBall && (carriedBall == null || grabbedFromMouth))
         {
-            isCarryingBall = false;
-            carriedBall = null;
+            isHeldByPlayer = false;
+            ReleaseCarriedBallToPlayer();
         }
 
         if (targetObject != null)
         {
+            WakeUpFromSleep();
             if (isEating) isEating = false;
             isCalledByWhistle = false;
             isWaitingAtWhistle = false;
         }
 
-        // 1. MODE MEMBAWA BOLA KEMBALI KE PLAYER VR
+        // 1. MODE MEMBAWA BOLA KEMBALI KE PLAYER VR (BISA SEKALIGUS DI-PETTING DI DEPAN PLAYER)
         if (isCarryingBall && carriedBall != null)
         {
-            agent.isStopped = false;
-            isWaiting = false;
-            currentIdleType = 0;
-            agent.speed = runSpeed;
+            Transform attachTarget = mouthPoint != null ? mouthPoint : transform;
+            if (carriedBall.parent != attachTarget)
+            {
+                carriedBall.SetParent(attachTarget);
+            }
+            carriedBall.localPosition = Vector3.zero;
 
             if (vrPlayer != null)
             {
-                agent.SetDestination(vrPlayer.position);
-
                 Vector3 flatDogPos = new Vector3(transform.position.x, 0f, transform.position.z);
                 Vector3 flatPlayerPos = new Vector3(vrPlayer.position.x, 0f, vrPlayer.position.z);
                 float distToPlayer = Vector3.Distance(flatDogPos, flatPlayerPos);
 
-                if (distToPlayer <= dropDistanceFromPlayer)
+                if (!isWaiting && distToPlayer > dropDistanceFromPlayer)
                 {
-                    DropBall();
+                    agent.isStopped = false;
+                    isChasing = true;
+                    currentIdleType = 0;
+                    agent.speed = runSpeed;
+                    agent.SetDestination(vrPlayer.position);
+                }
+                else if (isWaiting && distToPlayer > dropDistanceFromPlayer + 0.6f)
+                {
+                    isWaiting = false;
+                    agent.isStopped = false;
+                    isChasing = true;
+                    currentIdleType = 0;
+                    agent.speed = runSpeed;
+                    agent.SetDestination(vrPlayer.position);
+                }
+                else
+                {
+                    agent.isStopped = true;
+                    agent.velocity = Vector3.zero;
+                    isChasing = false;
+                    isWaiting = true;
+                    FaceTarget(vrPlayer.position);
+
+                    if (isBeingPetted)
+                    {
+                        currentIdleType = petIdleType;
+                        wasBeingPetted = true;
+                    }
+                    else
+                    {
+                        wasBeingPetted = false;
+                        currentIdleType = deliverBallIdleType;
+                    }
                 }
             }
             else
@@ -200,7 +341,7 @@ public class DogController : MonoBehaviour
             return;
         }
 
-        // 2. MODE SAAT BOLA SEDANG DIPEGANG PLAYER VR
+        // 2. MODE SAAT PLAYER MENGANGKAT BOLA DARI TANAH -> ANJING MENGHAMPIRI PLAYER
         if (targetObject != null && isHeldByPlayer)
         {
             Vector3 lookTarget = vrPlayer != null ? vrPlayer.position : targetObject.position;
@@ -223,29 +364,62 @@ public class DogController : MonoBehaviour
                 agent.velocity = Vector3.zero;
                 isChasing = false;
                 isWaiting = true;
-                currentIdleType = holdingBallIdleType;
                 FaceTarget(lookTarget);
+
+                if (isBeingPetted)
+                {
+                    currentIdleType = petIdleType;
+                    wasBeingPetted = true;
+                }
+                else
+                {
+                    wasBeingPetted = false;
+                    currentIdleType = holdingBallIdleType;
+                }
             }
 
             UpdateAnimation();
             return;
         }
 
-        // 3. MODE MENGEJAR BOLA
+        // 3. MODE MENGEJAR BOLA (HANYA JIKA DILEMPAR MENJAUHI PLAYER & MASUK JANGKAUAN ANJING)
+        if (pickupCooldownTimer > 0f)
+        {
+            pickupCooldownTimer -= Time.deltaTime;
+        }
+
         if (targetObject != null && !isHeldByPlayer)
         {
-            float distanceToTarget = Vector3.Distance(transform.position, targetObject.position);
+            float distanceDogToBall = Vector3.Distance(transform.position, targetObject.position);
+            float distancePlayerToBall = vrPlayer != null
+                ? Vector3.Distance(
+                    new Vector3(vrPlayer.position.x, 0f, vrPlayer.position.z),
+                    new Vector3(targetObject.position.x, 0f, targetObject.position.z))
+                : minDistanceFromPlayer;
 
-            if (distanceToTarget <= detectionRadius)
+            bool farEnoughFromPlayer = distancePlayerToBall >= minDistanceFromPlayer;
+            bool withinDogDetection = distanceDogToBall <= detectionRadius;
+
+            if (!isChasing && farEnoughFromPlayer && withinDogDetection)
+            {
+                isChasing = true;
+            }
+            else if (isChasing && !withinDogDetection)
+            {
+                isChasing = false;
+                targetObject = null;
+                MoveToCurrentWaypoint();
+            }
+
+            if (isChasing && targetObject != null)
             {
                 agent.isStopped = false;
                 isWaiting = false;
                 currentIdleType = 0;
-                isChasing = true;
                 agent.speed = runSpeed;
                 agent.SetDestination(targetObject.position);
 
-                if (distanceToTarget <= agent.stoppingDistance + 0.5f)
+                if (pickupCooldownTimer <= 0f && distanceDogToBall <= agent.stoppingDistance + 0.5f)
                 {
                     PickUpBall(targetObject);
                 }
@@ -253,11 +427,21 @@ public class DogController : MonoBehaviour
                 UpdateAnimation();
                 return;
             }
+            else if (targetObject != null)
+            {
+                throwDetectionTimer -= Time.deltaTime;
+                if (throwDetectionTimer <= 0f)
+                {
+                    targetObject = null;
+                    MoveToCurrentWaypoint();
+                }
+            }
         }
 
         // 4. MODE MENUJU TEMPAT MAKAN, MENUNGGU PENUH, & MAKAN (HANYA SAAT LAPAR)
         if (isHungry && foodBowl != null && (isApproachingBowl || isEating || foodBowl.IsFull))
         {
+            WakeUpFromSleep();
             isCalledByWhistle = false;
             isWaitingAtWhistle = false;
 
@@ -327,6 +511,7 @@ public class DogController : MonoBehaviour
         // 5. MODE SEDANG DIELUS (PETTING)
         if (isBeingPetted)
         {
+            WakeUpFromSleep();
             isCalledByWhistle = false;
             isWaitingAtWhistle = false;
 
@@ -334,6 +519,7 @@ public class DogController : MonoBehaviour
             agent.velocity = Vector3.zero;
             isChasing = false;
             isWaiting = true;
+            currentContinuousLoop = true;
             currentIdleType = petIdleType;
             wasBeingPetted = true;
 
@@ -344,12 +530,15 @@ public class DogController : MonoBehaviour
         {
             wasBeingPetted = false;
             isWaiting = true;
+            currentContinuousLoop = false;
+            currentIdleType = 0;
             waitTimer = postPetWaitTime;
         }
 
         // 6. MODE DIPANGGIL WHISTLE (MENDEKAT LALU DIAM 5 DETIK)
         if (isCalledByWhistle && vrPlayer != null)
         {
+            WakeUpFromSleep();
             Vector3 flatDogPos = new Vector3(transform.position.x, 0f, transform.position.z);
             Vector3 flatPlayerPos = new Vector3(vrPlayer.position.x, 0f, vrPlayer.position.z);
             float distToPlayer = Vector3.Distance(flatDogPos, flatPlayerPos);
@@ -358,7 +547,6 @@ public class DogController : MonoBehaviour
             {
                 if (distToPlayer > whistleStopDistance)
                 {
-                    // Berlari menghampiri player
                     agent.isStopped = false;
                     isWaiting = false;
                     isChasing = true;
@@ -368,7 +556,6 @@ public class DogController : MonoBehaviour
                 }
                 else
                 {
-                    // Sampai di depan player -> mulai diam selama 5 detik
                     isWaitingAtWhistle = true;
                     whistleTimer = whistleWaitDuration;
                     agent.isStopped = true;
@@ -381,7 +568,6 @@ public class DogController : MonoBehaviour
             }
             else
             {
-                // Diam selama 5 detik menghadap player
                 agent.isStopped = true;
                 agent.velocity = Vector3.zero;
                 isChasing = false;
@@ -392,7 +578,6 @@ public class DogController : MonoBehaviour
                 whistleTimer -= Time.deltaTime;
                 if (whistleTimer <= 0f)
                 {
-                    // Selesai 5 detik -> kembali ke rute patroli semula
                     isCalledByWhistle = false;
                     isWaitingAtWhistle = false;
                     isWaiting = false;
@@ -406,26 +591,86 @@ public class DogController : MonoBehaviour
             return;
         }
 
-        // 7. MODE PATROLI RUTE WAYPOINT
-        agent.isStopped = false;
-        isChasing = false;
-        agent.speed = walkSpeed;
-
-        if (waypoints == null || waypoints.Length == 0)
+        // 7. MODE TIDUR SETELAH SELESAI LOOP SELURUH WAYPOINT
+        if (isSleeping)
         {
+            agent.isStopped = true;
+            agent.velocity = Vector3.zero;
+            isChasing = false;
+            isWaiting = true;
+            currentIdleType = 0;
+
+            if (sleepDuration > 0f)
+            {
+                sleepTimer -= Time.deltaTime;
+                if (sleepTimer <= 0f)
+                {
+                    isSleeping = false;
+                    isWaiting = false;
+                    if (loopRoute)
+                    {
+                        MoveToCurrentWaypoint();
+                    }
+                }
+            }
+
             UpdateAnimation();
             return;
         }
 
+        // 8. MODE PATROLI RUTE WAYPOINT
+        agent.isStopped = false;
+        isChasing = false;
+        agent.speed = walkSpeed;
+
         if (isWaiting)
         {
+            if (currentIdleType > 0 && !currentContinuousLoop && animator != null)
+            {
+                idleAnimSafetyTimer -= Time.deltaTime;
+                AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+
+                if (!animator.IsInTransition(0) && !stateInfo.IsName("Dog_001_walk") && !stateInfo.IsName("Run"))
+                {
+                    enteredIdleAnimState = true;
+                }
+
+                float targetNormalizedTime = currentIdleLoopCount - 0.05f;
+                if ((enteredIdleAnimState && stateInfo.normalizedTime >= targetNormalizedTime) || idleAnimSafetyTimer <= 0f)
+                {
+                    currentIdleType = 0;
+                    enteredIdleAnimState = false;
+                }
+
+                UpdateAnimation();
+                return;
+            }
+
             waitTimer -= Time.deltaTime;
             if (waitTimer <= 0f)
             {
                 isWaiting = false;
                 currentIdleType = 0;
-                MoveToCurrentWaypoint();
+                currentContinuousLoop = false;
+                currentIdleLoopCount = 1;
+
+                if (pendingSleepAfterWait)
+                {
+                    pendingSleepAfterWait = false;
+                    isSleeping = true;
+                    sleepTimer = sleepDuration;
+                }
+                else
+                {
+                    MoveToCurrentWaypoint();
+                }
             }
+            UpdateAnimation();
+            return;
+        }
+
+        if (waypoints == null || waypoints.Length == 0)
+        {
             UpdateAnimation();
             return;
         }
@@ -437,6 +682,13 @@ public class DogController : MonoBehaviour
                 isWaiting = true;
                 waitTimer = GetWaitTimeForWaypoint(currentWaypointIndex);
                 currentIdleType = GetIdleTypeForWaypoint(currentWaypointIndex);
+                currentContinuousLoop = GetContinuousLoopForWaypoint(currentWaypointIndex);
+
+                int manualCount = GetIdleLoopCountForWaypoint(currentWaypointIndex);
+                currentIdleLoopCount = manualCount > 0 ? manualCount : 1;
+
+                enteredIdleAnimState = false;
+                idleAnimSafetyTimer = currentContinuousLoop ? waitTimer + 2f : currentIdleLoopCount * 8f;
                 AdvanceWaypointIndex();
             }
         }
@@ -473,9 +725,28 @@ public class DogController : MonoBehaviour
         return 0;
     }
 
+    bool GetContinuousLoopForWaypoint(int index)
+    {
+        if (waypointLoopIdle != null && index >= 0 && index < waypointLoopIdle.Length)
+        {
+            return waypointLoopIdle[index];
+        }
+        return false;
+    }
+
+    int GetIdleLoopCountForWaypoint(int index)
+    {
+        if (waypointLoopCounts != null && index >= 0 && index < waypointLoopCounts.Length)
+        {
+            return waypointLoopCounts[index];
+        }
+        return 1;
+    }
+
     void PickUpBall(Transform ball)
     {
         carriedBall = ball;
+        carriedBallGrab = carriedBall.GetComponent<XRGrabInteractable>();
         targetObject = null;
         isChasing = false;
         isCarryingBall = true;
@@ -493,12 +764,65 @@ public class DogController : MonoBehaviour
         Collider ballCol = carriedBall.GetComponent<Collider>();
         if (ballCol != null)
         {
-            ballCol.isTrigger = true;
+            ballCol.isTrigger = false;
+            SetIgnoreBallCollision(ballCol, true);
         }
 
         Transform attachTarget = mouthPoint != null ? mouthPoint : transform;
         carriedBall.SetParent(attachTarget);
         carriedBall.localPosition = Vector3.zero;
+        carriedBall.localRotation = Quaternion.identity;
+    }
+
+    void ReleaseCarriedBallToPlayer()
+    {
+        if (carriedBall != null)
+        {
+            if (carriedBall.parent == mouthPoint || carriedBall.parent == transform)
+            {
+                carriedBall.SetParent(null);
+            }
+
+            Collider ballCol = carriedBall.GetComponent<Collider>();
+            if (ballCol != null)
+            {
+                ballCol.isTrigger = false;
+                SetIgnoreBallCollision(ballCol, false);
+            }
+
+            Rigidbody ballRb = carriedBall.GetComponent<Rigidbody>();
+            if (ballRb != null)
+            {
+                ballRb.isKinematic = false;
+                ballRb.useGravity = true;
+            }
+
+            carriedBall = null;
+        }
+
+        carriedBallGrab = null;
+        targetObject = null;
+        isCarryingBall = false;
+        isChasing = false;
+        isWaiting = false;
+        wasBeingPetted = false;
+        currentIdleType = 0;
+        agent.speed = walkSpeed;
+        MoveToCurrentWaypoint();
+    }
+
+    void SetIgnoreBallCollision(Collider ballCol, bool ignore)
+    {
+        if (ballCol == null) return;
+
+        Collider[] dogColliders = GetComponentsInChildren<Collider>();
+        foreach (Collider col in dogColliders)
+        {
+            if (col != null && col != ballCol)
+            {
+                Physics.IgnoreCollision(ballCol, col, ignore);
+            }
+        }
     }
 
     void DropBall()
@@ -513,6 +837,7 @@ public class DogController : MonoBehaviour
             {
                 ballCol.isTrigger = false;
                 ballCol.material = null;
+                SetIgnoreBallCollision(ballCol, false);
             }
 
             Rigidbody ballRb = carriedBall.GetComponent<Rigidbody>();
@@ -527,6 +852,7 @@ public class DogController : MonoBehaviour
             carriedBall = null;
         }
 
+        carriedBallGrab = null;
         isCarryingBall = false;
         isHeldByPlayer = false;
         agent.speed = walkSpeed;
@@ -538,7 +864,7 @@ public class DogController : MonoBehaviour
 
     void MoveToCurrentWaypoint()
     {
-        if (waypoints.Length == 0 || waypoints[currentWaypointIndex] == null) return;
+        if (waypoints == null || waypoints.Length == 0 || waypoints[currentWaypointIndex] == null) return;
         agent.isStopped = false;
         agent.SetDestination(waypoints[currentWaypointIndex].position);
     }
@@ -548,6 +874,15 @@ public class DogController : MonoBehaviour
         currentWaypointIndex++;
         if (currentWaypointIndex >= waypoints.Length)
         {
+            completedRouteLoops++;
+            int targetLoops = routeLoopsBeforeSleep > 0 ? routeLoopsBeforeSleep : 1;
+
+            if (sleepAfterRouteLoop && completedRouteLoops >= targetLoops)
+            {
+                pendingSleepAfterWait = true;
+                completedRouteLoops = 0;
+            }
+
             currentWaypointIndex = loopRoute ? 0 : waypoints.Length - 1;
         }
     }
@@ -557,14 +892,15 @@ public class DogController : MonoBehaviour
         if (animator == null || agent == null) return;
 
         animator.SetBool("IsEating", isEating);
+        animator.SetBool("IsSleeping", isSleeping);
 
         float currentSpeed = agent.velocity.magnitude;
 
-        if (isWaiting || currentSpeed < 0.1f)
+        if (isSleeping || isWaiting || currentSpeed < 0.1f)
         {
             animator.SetFloat("Vert", 0f, 0.1f, Time.deltaTime);
             animator.SetFloat("State", 0f, 0.1f, Time.deltaTime);
-            animator.SetInteger("IdleType", (isWaiting && !isEating) ? currentIdleType : 0);
+            animator.SetInteger("IdleType", (isWaiting && !isEating && !isSleeping) ? currentIdleType : 0);
         }
         else
         {

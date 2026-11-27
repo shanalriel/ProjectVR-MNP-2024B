@@ -77,11 +77,9 @@ public class VRDogPetting : MonoBehaviour
         Vector3 flatDogPos = new Vector3(transform.position.x, 0f, transform.position.z);
         float distance = Vector3.Distance(flatPlayerPos, flatDogPos);
 
-        // Tolak jika anjing terlalu jauh dari player
         if (distance > maxPetDistance)
             return false;
 
-        // Tolak jika anjing berada di samping jauh atau di belakang player
         if (requireInFrontOfPlayer)
         {
             Vector3 flatForward = new Vector3(vrPlayer.forward.x, 0f, vrPlayer.forward.z).normalized;
@@ -100,7 +98,7 @@ public class VRDogPetting : MonoBehaviour
 
     private void OnPetStart(SelectEnterEventArgs args)
     {
-        if (!IsWithinPettingRange()) return;
+        if ((dogAI != null && dogAI.IsCarryingBall) || !IsWithinPettingRange()) return;
 
         isSelectingDog = true;
         petGraceTimer = stopPetDelay;
@@ -113,7 +111,7 @@ public class VRDogPetting : MonoBehaviour
 
     private void OnTriggerStay(Collider other)
     {
-        if (!IsWithinPettingRange()) return;
+        if ((dogAI != null && dogAI.IsCarryingBall) || !IsWithinPettingRange()) return;
 
         if (other.GetComponentInParent<UnityEngine.XR.Interaction.Toolkit.Interactors.XRBaseInteractor>() != null)
         {
@@ -146,8 +144,14 @@ public class VRDogPetting : MonoBehaviour
 
     void Update()
     {
-        // Langsung hentikan petting jika jarak menjauh atau player berpaling
-        if (!IsWithinPettingRange())
+        // Nonaktifkan XRSimpleInteractable sementara agar tidak merebut input ambil bola
+        bool blockPetting = false;
+        if (simpleInteractable != null && simpleInteractable.enabled == blockPetting)
+        {
+            simpleInteractable.enabled = !blockPetting;
+        }
+
+        if (blockPetting || !IsWithinPettingRange())
         {
             isSelectingDog = false;
             isTouchingDog = false;
